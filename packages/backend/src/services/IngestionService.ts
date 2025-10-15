@@ -1,3 +1,4 @@
+import { extname } from 'path';
 import { db } from '../database';
 import { ingestionSources } from '../database/schema';
 import type {
@@ -338,8 +339,14 @@ export class IngestionService {
 			const emlBuffer = email.eml ?? Buffer.from(email.body, 'utf-8');
 			const emailHash = createHash('sha256').update(emlBuffer).digest('hex');
 			const sanitizedPath = email.path ? email.path : '';
-			const emailPath = `${config.storage.openArchiverFolderName}/${source.name.replaceAll(' ', '-')}-${source.id}/emails/${sanitizedPath}${email.id}.eml`;
-			await storage.put(emailPath, emlBuffer);
+
+			// https://github.com/jlkiri/gatsby/blob/master/packages/gatsby/src/utils/extname(attachment.filename || '').toLowerCase();#L44
+			if (email.id.length > 255) {
+				logger.warn(
+					{ email, ingestionSourceId: source.id },
+					'Email ID exceeding 255 characters detected'
+				);
+			}
 
 			const [archivedEmail] = await db
 				.insert(archivedEmails)
@@ -357,7 +364,7 @@ export class IngestionService {
 						cc: email.cc,
 						bcc: email.bcc,
 					},
-					storagePath: emailPath,
+					storagePath: 'dummy',
 					storageHashSha256: emailHash,
 					sizeBytes: emlBuffer.length,
 					hasAttachments: email.attachments.length > 0,
@@ -366,14 +373,28 @@ export class IngestionService {
 				})
 				.returning();
 
+			const emailPath = `${config.storage.openArchiverFolderName}/${source.name.replaceAll(' ', '-')}-${source.id}/emails/${archivedEmail.id}.eml`;
+			await storage.put(emailPath, emlBuffer);
+
+			// Update the email record with the correct storage path now that we have the email ID
+			await db
+				.update(archivedEmails)
+				.set({ storagePath: emailPath })
+				.where(eq(archivedEmails.id, archivedEmail.id));
+
 			if (email.attachments.length > 0) {
 				for (const attachment of email.attachments) {
 					const attachmentBuffer = attachment.content;
 					const attachmentHash = createHash('sha256')
 						.update(attachmentBuffer)
 						.digest('hex');
-					const attachmentPath = `${config.storage.openArchiverFolderName}/${source.name.replaceAll(' ', '-')}-${source.id}/attachments/${attachment.filename}`;
-					await storage.put(attachmentPath, attachmentBuffer);
+
+					if (!attachment.filename) {
+						logger.warn(
+							{ email, attachment, ingestionSourceId: source.id },
+							'Attachment without filename detected'
+						);
+					}
 
 					const [newAttachment] = await db
 						.insert(attachmentsSchema)
@@ -382,13 +403,23 @@ export class IngestionService {
 							mimeType: attachment.contentType,
 							sizeBytes: attachment.size,
 							contentHashSha256: attachmentHash,
-							storagePath: attachmentPath,
+							storagePath: 'dummy',
 						})
 						.onConflictDoUpdate({
 							target: attachmentsSchema.contentHashSha256,
 							set: { filename: attachment.filename },
 						})
 						.returning();
+
+					const ext = extname(attachment.filename || '').toLowerCase();
+					const attachmentPath = `${config.storage.openArchiverFolderName}/${source.name.replaceAll(' ', '-')}-${source.id}/attachments/${newAttachment.id}${ext}`;
+					await storage.put(attachmentPath, attachmentBuffer);
+
+					// Update the attachment record with the correct storage path now that we have the attachment ID
+					await db
+						.update(attachmentsSchema)
+						.set({ storagePath: attachmentPath })
+						.where(eq(attachmentsSchema.id, newAttachment.id));
 
 					await db
 						.insert(emailAttachments)
