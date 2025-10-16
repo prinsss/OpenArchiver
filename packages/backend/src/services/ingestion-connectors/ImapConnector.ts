@@ -7,6 +7,7 @@ import type {
 } from '@open-archiver/types';
 import type { IEmailConnector } from '../EmailProviderFactory';
 import { FetchMessageObject, ImapFlow } from 'imapflow';
+import iconv from 'iconv-lite';
 import { simpleParser, ParsedMail, Attachment, AddressObject, Headers } from 'mailparser';
 import { logger } from '../../config/logger';
 import { getMailDate, getThreadId } from './helpers/utils';
@@ -252,7 +253,8 @@ export class ImapConnector implements IEmailConnector {
 	}
 
 	private async parseMessage(msg: FetchMessageObject, mailboxPath: string): Promise<EmailObject> {
-		const parsedEmail: ParsedMail = await simpleParser(msg.source!);
+		const fixedSource = await this.convertMalformedBuffer(msg.source!);
+		const parsedEmail: ParsedMail = await simpleParser(fixedSource);
 		const attachments = parsedEmail.attachments.map((attachment: Attachment) => ({
 			filename: attachment.filename || 'untitled',
 			contentType: attachment.contentType,
@@ -304,5 +306,43 @@ export class ImapConnector implements IEmailConnector {
 		}
 
 		return syncState;
+	}
+
+	// dirty temporary fix
+	private async convertMalformedBuffer(buffer: Buffer): Promise<Buffer> {
+		const content = buffer.toString('utf-8');
+		if (!content.includes('gb2312') && !content.includes('GB2312')) {
+			return buffer;
+		}
+
+		const subjectLine = content
+			.split('\n')
+			.find((line) => line.startsWith('Subject:') || line.startsWith('subject:'));
+
+		if (!subjectLine) {
+			return buffer;
+		}
+
+		const asciiRegex =
+			/^[a-zA-Z0-9\s\-\_\.\!\@\#\$\%\^\&\*\(\)\+\=\[\]\{\}\;\:\'\"\,\<\>\?\/\\\|]*$/;
+		if (asciiRegex.test(subjectLine)) {
+			return buffer;
+		}
+
+		if (subjectLine.includes('=?')) {
+			return buffer;
+		}
+
+		const utf8Buffer = iconv.decode(buffer, 'gb2312');
+		logger.warn('Converted GB2312 buffer to UTF-8', subjectLine);
+
+		const moddedBuffer = Buffer.from(
+			utf8Buffer
+				.toString()
+				.replace(/gb2312/gi, 'utf-8')
+				.replace('Content-transfer-Encoding: quoted-printable', ''),
+			'utf-8'
+		);
+		return moddedBuffer;
 	}
 }
