@@ -9,6 +9,9 @@ set -e
 # when running on a different architecture than the one used for building.
 pnpm install --frozen-lockfile --prod
 
+echo "Installing iconv-lite for backend..."
+pnpm --filter='@open-archiver/backend' add iconv-lite --prod
+
 # Run database migrations before starting the application to prevent
 # race conditions where the app starts before the database is ready.
 pnpm db:migrate

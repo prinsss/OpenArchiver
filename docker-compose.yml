@@ -11,6 +11,11 @@ services:
             - .env
         volumes:
             - archiver-data:/var/data/open-archiver
+            - ./docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh
+            - ./dist/services/IngestionService.js:/app/packages/backend/dist/services/IngestionService.js
+            - ./dist/services/ingestion-connectors/ImapConnector.js:/app/packages/backend/dist/services/ingestion-connectors/ImapConnector.js
+            - ./dist/services/ingestion-connectors/helpers/utils.js:/app/packages/backend/dist/services/ingestion-connectors/helpers/utils.js
+            - ./dist/api/controllers/storage.controller.js:/app/packages/backend/dist/api/controllers/storage.controller.js
         depends_on:
             - postgres
             - valkey
