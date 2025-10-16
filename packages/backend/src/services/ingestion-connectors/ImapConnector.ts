@@ -255,6 +255,14 @@ export class ImapConnector implements IEmailConnector {
 	private async parseMessage(msg: FetchMessageObject, mailboxPath: string): Promise<EmailObject> {
 		const fixedSource = await this.convertMalformedBuffer(msg.source!);
 		const parsedEmail: ParsedMail = await simpleParser(fixedSource);
+
+		if (fixedSource !== msg.source) {
+			logger.warn(
+				{ mailboxPath, uid: msg.uid, subject: parsedEmail.subject },
+				'Email source modified due to encoding issues'
+			);
+		}
+
 		const attachments = parsedEmail.attachments.map((attachment: Attachment) => ({
 			filename: attachment.filename || 'untitled',
 			contentType: attachment.contentType,
@@ -334,7 +342,7 @@ export class ImapConnector implements IEmailConnector {
 		}
 
 		const utf8Buffer = iconv.decode(buffer, 'gb2312');
-		logger.warn('Converted GB2312 buffer to UTF-8', subjectLine);
+		logger.warn('Converted GB2312 buffer to UTF-8: ' + subjectLine);
 
 		const moddedBuffer = Buffer.from(
 			utf8Buffer
