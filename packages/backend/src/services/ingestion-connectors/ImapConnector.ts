@@ -10,7 +10,7 @@ import { FetchMessageObject, ImapFlow } from 'imapflow';
 import iconv from 'iconv-lite';
 import { simpleParser, ParsedMail, Attachment, AddressObject, Headers } from 'mailparser';
 import { logger } from '../../config/logger';
-import { getMailDate, getThreadId } from './helpers/utils';
+import { getMailDate, getSortedMailboxes, getThreadId } from './helpers/utils';
 
 export class ImapConnector implements IEmailConnector {
 	private client: ImapFlow;
@@ -154,16 +154,7 @@ export class ImapConnector implements IEmailConnector {
 			// list all mailboxes first
 			const mailboxes = await this.withRetry(async () => await this.client.list());
 
-			const processableMailboxes = mailboxes.filter((mailbox) => {
-				// Fallback to checking flags
-				if (
-					mailbox.flags.has('\\Noselect')
-				) {
-					return false;
-				}
-
-				return true;
-			});
+			const processableMailboxes = getSortedMailboxes(mailboxes);
 
 			for (const mailboxInfo of processableMailboxes) {
 				const mailboxPath = mailboxInfo.path;

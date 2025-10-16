@@ -1,4 +1,4 @@
-import type { FetchMessageObject } from 'imapflow';
+import type { FetchMessageObject, ListResponse } from 'imapflow';
 import type { Headers, ParsedMail } from 'mailparser';
 import { logger } from '../../../config/logger';
 
@@ -84,4 +84,69 @@ export function getMailDate(mail: ParsedMail, msg: FetchMessageObject): Date {
 
 	logger.warn({ mail, msg }, 'Email date is missing or invalid');
 	return new Date();
+}
+
+export function getMailboxPriority(mailbox: ListResponse): number {
+  const path = mailbox.path;
+  const specialUse = mailbox.specialUse?.toLowerCase() ?? "";
+
+  // Priority 6: INBOX (lowest priority)
+  if (specialUse === "\\inbox" || path === "INBOX") {
+    return 6;
+  }
+
+  // Priority 5: boxes marked as \all
+  if (specialUse === "\\all" || mailbox.flags.has("\\All")) {
+    return 5;
+  }
+
+  // Priority 4: boxes marked as \important
+  if (specialUse === "\\important" || mailbox.flags.has("\\Important")) {
+    return 4;
+  }
+
+  // Priority 3: boxes whose path starting with [Gmail]/
+  if (path.startsWith("[Gmail]/")) {
+    return 3;
+  }
+
+  // Priority 2: boxes whose path not includes "/"
+  if (!path.includes("/")) {
+    return 2;
+  }
+
+  // Priority 1: boxes whose path includes "/" but not starting with [Gmail]/
+  return 1;
+}
+
+export function getSortedMailboxes(mailboxes: ListResponse[]): ListResponse[] {
+  // sort mail boxes
+  // 1. boxes whose path includes "/" but not starting with [Gmail]/
+  // 2. boxes whose path not includes "/"
+  // 3. boxes whose path starting with [Gmail]/
+  // 4. boxes marked as \all
+
+  const processableMailboxes = mailboxes.filter((mailbox) => {
+    if (mailbox.flags.has("\\Noselect")) {
+      return false;
+    }
+    return true;
+  });
+
+  const sortedMailboxes = processableMailboxes.sort((a, b) => {
+    const aPath = a.path;
+    const bPath = b.path;
+
+    const aPriority = getMailboxPriority(a);
+    const bPriority = getMailboxPriority(b);
+
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority;
+    }
+
+    // If same priority, sort alphabetically
+    return aPath.localeCompare(bPath);
+  });
+
+  return sortedMailboxes;
 }
