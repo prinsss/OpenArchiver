@@ -329,7 +329,7 @@ export class IngestionService {
 			});
 
 			if (existingEmail) {
-				logger.info(
+				logger.debug(
 					{ messageId, ingestionSourceId: source.id },
 					'Skipping duplicate email'
 				);
